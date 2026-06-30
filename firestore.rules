@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function role() {
+      return userDoc().role;
+    }
+    function isCoach()  { return request.auth != null && role() in ['coach', 'admin']; }
+    function isPlayer() { return request.auth != null && role() in ['player', 'coach', 'admin']; }
+    function isAdmin()  { return request.auth != null && role() == 'admin'; }
+    function isOwn(uid) { return request.auth != null && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read:   if isOwn(uid) || isCoach();
+      allow create: if isOwn(uid)
+                    && request.resource.data.role == 'pending'
+                    && request.resource.data.keys().hasAll(['email','role','createdAt']);
+      allow update: if isAdmin()
+                    || (isOwn(uid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow delete: if isAdmin();
+    }
+
+    match /teams/{teamId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+
+    match /players/{playerId} {
+      allow read:   if isPlayer();
+      allow create: if isCoach();
+      allow update: if isCoach()
+                    || (isPlayer() && userDoc().playerId == playerId
+                        && request.resource.data.diff(resource.data)
+                           .affectedKeys().hasOnly(['weightKg','heightCm','updatedAt']));
+      allow delete: if isCoach();
+    }
+
+    match /sessions/{sessionId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+
+    match /gpsMetrics/{metricId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+
+    match /cmjTests/{testId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+
+    match /strengthEntries/{entryId} {
+      allow read:   if isPlayer();
+      allow create: if isPlayer()
+                    && (isCoach() || request.resource.data.playerId == userDoc().playerId);
+      allow update: if isCoach()
+                    || (isPlayer() && resource.data.playerId == userDoc().playerId);
+      allow delete: if isCoach();
+    }
+
+    match /imports/{importId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+
+    match /appSettings/{docId} {
+      allow read:   if isPlayer();
+      allow write:  if isCoach();
+    }
+  }
+}
